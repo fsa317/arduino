@@ -7,6 +7,9 @@
 #include <WiFiClient.h>
 #include <PubSubClient.h>
 
+//https://github.com/FastLED/FastLED/wiki
+//https://github.com/AaronLiddiment/LEDText/wiki
+//Set BOARD to NodeMCU1.0
 
 const char *ssid = "TruffleShuffle";
 const char *password = "Mets1234";
@@ -50,7 +53,7 @@ void setup()
   delay(500);
   FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds[0], leds.Size());
   
-  FastLED.setBrightness(30); //64
+  FastLED.setBrightness(50); //64
   FastLED.clear(true);
   delay(100);
   int i = 0;
@@ -60,23 +63,48 @@ void setup()
     i++;
     FastLED.show();
   }
-  connectToMQTT();
-  
-  FastLED.clear();
+ //connectToMQTT();
+  dbg("clearing");
+  FastLED.clear(true);
 
   msgList[0]= "          Default Message        ";
   totalMsg=1;
   nextSlot=0;
 
+  dbg("initializing text");
   //ScrollingMsg.SetFont(RobotronFontData);
   ScrollingMsg.SetFont(MatriseFontData);
   ScrollingMsg.Init(&leds, leds.Width(), ScrollingMsg.FontHeight() + 1, 0, 0);
   ScrollingMsg.SetText((unsigned char *)TxtDemo, sizeof(TxtDemo) - 1);
-  ScrollingMsg.SetTextColrOptions(COLR_RGB | COLR_SINGLE, 0xff, 0x00, 0xff);
+  ScrollingMsg.SetTextColrOptions(COLR_RGB | COLR_SINGLE, 0xff, 0x00, 0x00);
 }
 
+void loop(){
+  dbg("LOOP");
+  char x = '\x00';
+  char tmp[] = {EFFECT_RGB "\x01\x01\xFF 5 -" EFFECT_RGB  "\xFF\x01\x01 5"};  //cant have x00 messes up strings
+  showText(tmp);
+  delay(5000);
+  char tmp2[] = {EFFECT_RGB "\x01\x01\xFF 6 -" EFFECT_RGB  "\xFF\x01\x01 5"};
+  showText(tmp2);
+  delay(3000);
+  char tmp3[] = {EFFECT_RGB "\x01\x01\xFF 6 -" EFFECT_RGB  "\xFF\x01\x01 6"};
+  showText(tmp3);
+  delay(2000);
+}
 
-void loop()
+void showText(String msg){
+  FastLED.clear(true);
+  int len = msg.length();
+  char * mStr = (char *)malloc(len+1);
+  msg.toCharArray(mStr,len+1);
+  mStr[len]='\0';
+  ScrollingMsg.SetText((unsigned char *)mStr, len);
+  ScrollingMsg.UpdateText();
+  FastLED.show();
+}
+
+void loop2()
 {
   if (ScrollingMsg.UpdateText() == -1){
     if (msgStr)
