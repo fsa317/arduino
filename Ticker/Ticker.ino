@@ -313,7 +313,26 @@ void msgrcvd(char* topic, byte* payload, unsigned int length) {
     }
   } else if (topicStr == "toticker/btn"){
     dbg("btn click "+msg);
+    doMQButtonPress();
+  }
+}
+
+void doMQButtonPress(String btn){
+  if (btn == "bluebtn"){
     blueBtnPressed();
+  } else if (btn == "bluebtn_long"){
+    blueBtnLongPressed();
+  } else if (btn == "redbtn"){
+    redBtnPressed();
+  } else if (btn == "redbtn_long"){
+    redBtnLongPressed();
+  } else if (btn == "menubtn"){
+    menuBtnPressed();
+  } else if (btn == "menubtn_long"){
+    menuBtnLongPressed();
+  } 
+  else {
+    dbg("button "+btn+" not supported ");
   }
 }
 
