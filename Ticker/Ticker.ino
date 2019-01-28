@@ -8,6 +8,7 @@
 #include <WiFiClient.h>
 #include <PubSubClient.h>
 
+
 //https://github.com/FastLED/FastLED/wiki
 //https://github.com/AaronLiddiment/LEDText/wiki
 //Set BOARD to NodeMCU1.0
@@ -95,6 +96,8 @@ void setup()
   } else {
     scrollText("     WELCOME APAP'S ");
   }
+  dbg("setup done");
+
 }
 
 //BUTTON HANDLERS
@@ -171,10 +174,9 @@ void checkGame(){
 
 void startGame(){
   dbg("Start game");
-  scrollText("      GAME to "+GAMEMAX_LIST[gameMaxIdx]);
-  while (isScrollingText==1){
-    
-  }
+  String maxStr = String(GAMEMAX_LIST[gameMaxIdx]);
+  showText("GAME TO "+maxStr);
+  delay(2000);
   currentBlueScore=0;
   currentRedScore=0;
   checkGame();
@@ -217,6 +219,7 @@ void loop(){
     }
     FastLED.show();
   } 
+  mqttclient.loop();
 }
 
 
@@ -229,6 +232,7 @@ void showText(String msg){
   mStr[len]='\0';
   ScrollingMsg.SetText((unsigned char *)mStr, len);
   ScrollingMsg.UpdateText();
+  isScrollingText = 0;
   FastLED.show();
 }
 
@@ -245,12 +249,12 @@ void scrollText(String msg){
   mStr[len]='\0';
   ScrollingMsg.SetText((unsigned char *)mStr, len);
   isScrollingText = 1;
-  while (ScrollingMsg.UpdateText() != -1){
-      dbg("scrolling");
+  /*while (ScrollingMsg.UpdateText() != -1){    //this seems to be bad because it blocks loop
+      //dbg("scrolling");
       FastLED.show();
   }
-  dbg("scrolling complete");
-  isScrollingText = 0;   
+  dbg("scrolling done");
+  isScrollingText = 0;   */
 }
 
 /*
@@ -292,12 +296,13 @@ void loop2()
 
 void msgrcvd(char* topic, byte* payload, unsigned int length) {
   /* DONT MAKE NETWORK CALLS HERE */
+  dbg("msg rcvd");
   String topicStr(topic);
   payload[length] = '\0';
   String msg ((char *)payload);
   /* debug */
   dbg("Message arrived: "+topicStr+"/"+msg);
-  if (topicStr == "ticker/addmsg"){
+  if (topicStr == "toticker/addmsg"){
     msgList[nextSlot]= msg;
     if (nextSlot!=0){
       totalMsg++;
@@ -306,8 +311,9 @@ void msgrcvd(char* topic, byte* payload, unsigned int length) {
     if (nextSlot >= MAXMSG){
       nextSlot = 0;
     }
-  } else if (topicStr == "ticker/button"){
+  } else if (topicStr == "toticker/btn"){
     dbg("btn click "+msg);
+    blueBtnPressed();
   }
 }
 
@@ -326,7 +332,8 @@ void connectToMQTT(){
       dbg("Connected to MQTT");
       regServer();
       mqttclient.setCallback(msgrcvd);
-      mqttclient.subscribe("ticker/#");
+      mqttclient.subscribe("toticker/#");
+      
   } else {
       dbg("mqtt failed, rc=");
       dbg(String(mqttclient.state()));   
@@ -337,8 +344,8 @@ void connectToMQTT(){
 void regServer(){
   String s = "Ticker:"+WiFi.localIP().toString();
   dbg(s);
-  char temp[100];
-  s.toCharArray(temp, s.length() + 1); //packaging up the data to publish to mqtt whoa...
-  mqttclient.publish("regserver",temp);
+  char ip[100];
+  s.toCharArray(ip, s.length() + 1); //packaging up the data to publish to mqtt whoa...
+  mqttclient.publish("regserver",ip);
   mqttclient.loop();
 }
