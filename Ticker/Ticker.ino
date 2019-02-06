@@ -23,17 +23,27 @@ WiFiClient espClient;
 PubSubClient mqttclient(espClient);
 
 // Change the next 6 defines to match your matrix type and size
-#define LED_PIN        7  //GPIO13
+#define LED_PIN        7  //GPIO13 / D7 on NODEMCU
 #define COLOR_ORDER    GRB
 #define CHIPSET        WS2812B
 #define MATRIX_WIDTH   60
 #define MATRIX_HEIGHT  7
 #define MATRIX_TYPE    HORIZONTAL_ZIGZAG_MATRIX
 
-#define MAXMSG 5
+#define RED_PIN   D1      //Dont use D0 seems to be a problem
+#define BLUE_PIN  D2
+#define MENU_PIN  D5
 
+#define NOCLICK 0
+#define REGCLICK 1
+#define LONGCLICK 2
+
+#define LONGCLICK_THRESHOLD 1000
+
+#define MAXMSG 10
 #define MODE_SCOREBOARD 1
-#define MODE_NEWS 2
+#define MODE_MSGS 2
+#define MODE_COUNT 2
 
 cLEDMatrix<MATRIX_WIDTH, MATRIX_HEIGHT, MATRIX_TYPE> leds;
 cLEDText ScrollingMsg;
@@ -43,9 +53,12 @@ int hasWifi = 1;
 int isScrollingText = 0;
 String msgList[MAXMSG];
 char * msgStr;
-int currentMsgIdx=0;
-int totalMsg=0;
-int nextSlot = 0;
+int currentMsgIdx=MAXMSG;
+int redBtnState = HIGH;
+int blueBtnState = HIGH;
+int menuBtnState = HIGH;
+unsigned long lastDebounceTime = 0;
+
 
 //SCOREBOARD
 int GAMEMAX_LIST[] = {11, 15, 21, 50};
@@ -64,12 +77,17 @@ void setup()
   delay(100);
   WiFi.begin ( ssid, password );
   delay(500);
+
+  pinMode(RED_PIN,INPUT_PULLUP);
+  pinMode(BLUE_PIN,INPUT_PULLUP);
+  pinMode(MENU_PIN,INPUT_PULLUP);
+  
   FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds[0], leds.Size());
   FastLED.setBrightness(25); //64
   FastLED.clear(true);
   delay(100);
   int i = 0;
- while ( WiFi.status() != WL_CONNECTED ) {
+  while ( WiFi.status() != WL_CONNECTED ) {
     delay (250);
     leds[0][i] = CRGB::Red;
     i++;
@@ -83,9 +101,7 @@ void setup()
   dbg("clearing");
   FastLED.clear(true);
 
-  msgList[0]= "          Default Message        ";
-  totalMsg=1;
-  nextSlot=0;
+  setDefaultMsgList();
 
   dbg("initializing text");
   ScrollingMsg.SetFont(RobotronFontData);
@@ -134,7 +150,7 @@ void redBtnPressed(){
 
 void menuBtnPressed(){
   if (mode == MODE_SCOREBOARD){
-    if (hasScore){
+    if (hasScore()==true){
       //nothing
     } else {
       dbg("change max score");
@@ -143,19 +159,54 @@ void menuBtnPressed(){
       if (gameMaxIdx >= arrLen){
         gameMaxIdx = 0;
       }
+      startGame();
     }
   }
 }
 
 void menuBtnLongPressed(){
   if (mode == MODE_SCOREBOARD){
-    if (hasScore){
+    if (hasScore()){
       dbg("resetting score");
       startGame();
     } else {
       dbg("switch mode");
+      mode++;
+      currentBlueScore = -1;
+      if (mode > MODE_COUNT){
+        mode = 1;
+      }
     }
+  } else {
+    dbg("switch mode");
+    mode++;
+    if (mode > MODE_COUNT){
+      mode = 1;
+    }
+    isScrollingText = 0;
+    currentMsgIdx=MAXMSG;
   }
+}
+
+// *********** MSG STUFF ***************
+
+void setDefaultMsgList(){
+  msgList[0] = paddedMsg("This is message 1");
+  msgList[1] = paddedMsg("This is message 2");
+  msgList[2] = paddedMsg("The last msg");
+}
+
+void scrollNextMessage(){
+  if (currentMsgIdx >= MAXMSG || !msgList[currentMsgIdx]){
+    currentMsgIdx = 0;
+  } else {
+    currentMsgIdx++;
+  }
+  scrollText(msgList[currentMsgIdx]);
+}
+
+String paddedMsg(String msg){
+  return "        "+msg+" ";
 }
 
 // ***********SCOREBOARD STUFF***********
@@ -169,11 +220,20 @@ bool hasScore(){
 
 void checkGame(){
   showScore(currentBlueScore,currentRedScore);
-  //TODO 
+  if (currentBlueScore >= GAMEMAX_LIST[gameMaxIdx]){
+    scrollText("    Blue Player Wins!!    ");
+    currentBlueScore = 0;
+    currentRedScore = 0;
+  } else if ( currentRedScore >= GAMEMAX_LIST[gameMaxIdx]){
+    scrollText("    Red Player Winws!!    ");
+    currentBlueScore = 0;
+    currentRedScore = 0;
+  }
 }
 
 void startGame(){
   dbg("Start game");
+  ScrollingMsg.SetFont(MatriseFontData);
   String maxStr = String(GAMEMAX_LIST[gameMaxIdx]);
   showText("GAME TO "+maxStr);
   delay(2000);
@@ -205,6 +265,10 @@ void loop(){
       if(currentBlueScore < 0){
         startGame();
       }
+    } else if (mode == MODE_MSGS) {
+      dbg("mode is messages");
+      scrollNextMessage();
+      
     } else {
       //dbg("Mode not supported "+mode);    //test this
       showText("Error 1x"+mode);
@@ -219,11 +283,60 @@ void loop(){
     }
     FastLED.show();
   } 
+  
+  handleButtons();
   mqttclient.loop();
 }
 
+//************* BUTTONS interrupts 
 
-//LED UTILS
+void handleButtons(){
+  int state = handleButton(RED_PIN, redBtnState);
+  
+  if (state == REGCLICK){
+    redBtnPressed();
+  } else if (state == LONGCLICK){
+    redBtnLongPressed();
+  }
+  
+  state = handleButton(BLUE_PIN, blueBtnState);
+  if (state == REGCLICK){
+    blueBtnPressed();
+  } else if (state == LONGCLICK){
+    blueBtnLongPressed();
+  }
+  
+  state = handleButton(MENU_PIN, menuBtnState);
+  if (state == REGCLICK){
+    menuBtnPressed();
+  } else if (state == LONGCLICK){
+    menuBtnLongPressed();
+  }
+}
+
+
+int handleButton(int pin, int &btnstate){
+  int val = digitalRead(RED_PIN);
+  int clicked = NOCLICK;
+  if (val != btnstate){
+    dbg("New red button state "+String(val));
+    btnstate = val;
+    if (btnstate == HIGH){
+      unsigned long pushTime = millis() - lastDebounceTime;
+      if (pushTime > LONGCLICK_THRESHOLD){
+        clicked = LONGCLICK;
+      } else {
+        clicked = REGCLICK;
+      }
+    } else {
+      //capture when button was pushed
+      lastDebounceTime = millis();
+    }
+  }
+  return clicked;
+}
+
+//*************LED UTILS
 void showText(String msg){
   FastLED.clear(true);
   int len = msg.length();
@@ -294,6 +407,8 @@ void loop2()
 
 */
 
+/** NETWORK STUF **/
+
 void msgrcvd(char* topic, byte* payload, unsigned int length) {
   /* DONT MAKE NETWORK CALLS HERE */
   dbg("msg rcvd");
@@ -302,18 +417,12 @@ void msgrcvd(char* topic, byte* payload, unsigned int length) {
   String msg ((char *)payload);
   /* debug */
   dbg("Message arrived: "+topicStr+"/"+msg);
-  if (topicStr == "toticker/addmsg"){
-    msgList[nextSlot]= msg;
-    if (nextSlot!=0){
-      totalMsg++;
-    }
-    nextSlot++;
-    if (nextSlot >= MAXMSG){
-      nextSlot = 0;
-    }
+  if (topicStr == "toticker/setmsgs"){
+    //TODO
+    
   } else if (topicStr == "toticker/btn"){
     dbg("btn click "+msg);
-    doMQButtonPress();
+    doMQButtonPress(msg);
   }
 }
 
