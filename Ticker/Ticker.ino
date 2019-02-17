@@ -38,7 +38,7 @@ PubSubClient mqttclient(espClient);
 #define REGCLICK 1
 #define LONGCLICK 2
 
-#define LONGCLICK_THRESHOLD 1000
+#define LONGCLICK_THRESHOLD 800
 
 #define MAXMSG 10
 #define MODE_SCOREBOARD 1
@@ -52,12 +52,13 @@ cLEDText ScrollingMsg;
 int hasWifi = 1;
 int isScrollingText = 0;
 String msgList[MAXMSG];
-char * msgStr;
 int currentMsgIdx=MAXMSG;
 int redBtnState = HIGH;
 int blueBtnState = HIGH;
 int menuBtnState = HIGH;
 unsigned long lastDebounceTime = 0;
+
+char * mStr;
 
 
 //SCOREBOARD
@@ -100,9 +101,9 @@ void setup()
 
   dbg("clearing");
   FastLED.clear(true);
-
+  
   setDefaultMsgList();
-
+  getNextSource();
   dbg("initializing text");
   ScrollingMsg.SetFont(RobotronFontData);
   //ScrollingMsg.SetFont(MatriseFontData);
@@ -110,10 +111,11 @@ void setup()
   if (hasWifi==0){
     scrollText("   NO WIFI!     WELCOME ");
   } else {
-    scrollText("     WELCOME APAP'S ");
+    //scrollText("     WELCOME APAP'S ");
+    scrollText("x");
   }
   dbg("setup done");
-
+  printFreeHeap();
 }
 
 //BUTTON HANDLERS
@@ -191,18 +193,37 @@ void menuBtnLongPressed(){
 // *********** MSG STUFF ***************
 
 void setDefaultMsgList(){
-  msgList[0] = paddedMsg("This is message 1");
-  msgList[1] = paddedMsg("This is message 2");
+  msgList[0] = paddedMsg("Lets Go Mets.");
+  msgList[1] = paddedMsg("This is a default message");
   msgList[2] = paddedMsg("The last msg");
 }
 
+void doSetMsg(char * msg){
+  int idx = (int)msg[0]-(int)'0';
+  msgList[idx] = paddedMsg(String(msg+1));
+}
+
+void clearMsgs(){
+  for( unsigned int a = 0; a < MAXMSG; a = a + 1 ){
+    msgList[a] ="";
+  }
+}
+
 void scrollNextMessage(){
-  if (currentMsgIdx >= MAXMSG || !msgList[currentMsgIdx]){
+  if (currentMsgIdx >= MAXMSG){
     currentMsgIdx = 0;
   } else {
     currentMsgIdx++;
   }
-  scrollText(msgList[currentMsgIdx]);
+  if (currentMsgIdx == (MAXMSG-1)){
+    dbg("requesting new messages");
+    getNextSource();
+  }
+  if (msgList[currentMsgIdx] && msgList[currentMsgIdx].length() > 10){     //9 because of padding
+    dbg("scrolling msg "+String(currentMsgIdx)+" length "+String(msgList[currentMsgIdx].length()));
+    scrollText(msgList[currentMsgIdx]);
+  }
+  
 }
 
 String paddedMsg(String msg){
@@ -268,7 +289,7 @@ void loop(){
     } else if (mode == MODE_MSGS) {
       dbg("mode is messages");
       scrollNextMessage();
-      
+      printFreeHeap();
     } else {
       //dbg("Mode not supported "+mode);    //test this
       showText("Error 1x"+mode);
@@ -316,10 +337,10 @@ void handleButtons(){
 
 
 int handleButton(int pin, int &btnstate){
-  int val = digitalRead(RED_PIN);
+  int val = digitalRead(pin);
   int clicked = NOCLICK;
   if (val != btnstate){
-    dbg("New red button state "+String(val));
+    dbg("New button"+String(pin)+" state "+String(val));
     btnstate = val;
     if (btnstate == HIGH){
       unsigned long pushTime = millis() - lastDebounceTime;
@@ -331,6 +352,7 @@ int handleButton(int pin, int &btnstate){
     } else {
       //capture when button was pushed
       lastDebounceTime = millis();
+      printFreeHeap();
     }
   }
   return clicked;
@@ -340,13 +362,16 @@ int handleButton(int pin, int &btnstate){
 void showText(String msg){
   FastLED.clear(true);
   int len = msg.length();
-  char * mStr = (char *)malloc(len+1);
-  msg.toCharArray(mStr,len+1);      //malloc with no free, is this a problem?
+  if (mStr)
+    free(mStr);
+  mStr = (char *)malloc(len+1);
+  msg.toCharArray(mStr,len+1);      
   mStr[len]='\0';
   ScrollingMsg.SetText((unsigned char *)mStr, len);
   ScrollingMsg.UpdateText();
   isScrollingText = 0;
   FastLED.show();
+  
 }
 
 void scrollText(String msg){
@@ -357,73 +382,37 @@ void scrollText(String msg){
   ScrollingMsg.SetTextColrOptions(COLR_RGB | COLR_SINGLE, 0xff, 0x00, 0x00);
   FastLED.clear(true);
   int len = msg.length();
-  char * mStr = (char *)malloc(len+1);  //malloc with no free, is this a problem?
+  if (mStr)
+    free(mStr);
+  mStr = (char *)malloc(len+1);  //malloc with no free, is this a problem?
   msg.toCharArray(mStr,len+1);
   mStr[len]='\0';
   ScrollingMsg.SetText((unsigned char *)mStr, len);
   isScrollingText = 1;
-  /*while (ScrollingMsg.UpdateText() != -1){    //this seems to be bad because it blocks loop
-      //dbg("scrolling");
-      FastLED.show();
-  }
-  dbg("scrolling done");
-  isScrollingText = 0;   */
 }
 
-/*
-void loop2()
-{
-  if (ScrollingMsg.UpdateText() == -1){
-    if (msgStr){
-      free(msgStr);
-    }
-    mqttclient.loop();
-    delay(150);
-    currentMsgIdx++;
-    int max = (totalMsg > MAXMSG ? MAXMSG : totalMsg);
-    if (currentMsgIdx >= max){
-      currentMsgIdx = 0;
-    }
-    
-    dbg("Displaying msgidx "+String(currentMsgIdx));
-    int len = msgList[currentMsgIdx].length();
-    msgStr = (char *)malloc(len+1);
-    dbg("Length of msg: "+String(len));
-  
-
-    msgList[currentMsgIdx].toCharArray(msgStr,len+1);
-    msgStr[len]='\0';
-  
-    ScrollingMsg.SetText((unsigned char *)msgStr, len);
-   
- 
-  }
-  else{
-    FastLED.show();
-  }
-  delay(10);
- 
-}
-
-*/
 
 /** NETWORK STUF **/
 
 void msgrcvd(char* topic, byte* payload, unsigned int length) {
   /* DONT MAKE NETWORK CALLS HERE */
   dbg("msg rcvd");
-  String topicStr(topic);
   payload[length] = '\0';
-  String msg ((char *)payload);
   /* debug */
-  dbg("Message arrived: "+topicStr+"/"+msg);
-  if (topicStr == "toticker/setmsgs"){
-    //TODO
-    
-  } else if (topicStr == "toticker/btn"){
+  //dbg("Message arrived: "+String(topic)+"/"+msg);
+  if (strcmp(topic,"toticker/setmsg")==0){
+    dbg("setmsg called");
+    doSetMsg((char *)payload);
+  } else if (strcmp(topic,"toticker/clearmsgs")==0){
+    dbg("clearmsgs called");
+    clearMsgs();
+  }
+    else if (strcmp(topic,"toticker/btn")==0){
+    String msg ((char *)payload);
     dbg("btn click "+msg);
     doMQButtonPress(msg);
   }
+  printFreeHeap();
 }
 
 void doMQButtonPress(String btn){
@@ -450,6 +439,15 @@ void dbg(String s){
   Serial.flush();
 }
 
+void printFreeHeap(){
+  Serial.print("Free Heap: ");
+  Serial.println(ESP.getFreeHeap());
+}
+
+void getNextSource(){
+  dbg("getNextSource");
+  mqttclient.publish("fromticker/getnextsource","getnextsource");
+}
 
 void connectToMQTT(){
   mqttclient.setServer("pizero1", 1883);
