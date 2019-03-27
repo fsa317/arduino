@@ -30,8 +30,8 @@ PubSubClient mqttclient(espClient);
 #define MATRIX_HEIGHT  7
 #define MATRIX_TYPE    HORIZONTAL_ZIGZAG_MATRIX
 
-#define RED_PIN   D1      //Dont use D0 seems to be a problem
-#define BLUE_PIN  D2
+#define RED_PIN   D2      //Dont use D0 seems to be a problem
+#define BLUE_PIN  D1
 #define MENU_PIN  D5
 
 #define NOCLICK 0
@@ -57,6 +57,7 @@ int redBtnState = HIGH;
 int blueBtnState = HIGH;
 int menuBtnState = HIGH;
 unsigned long lastDebounceTime = 0;
+int waitingForSource = 0;
 
 char * mStr;
 
@@ -84,7 +85,7 @@ void setup()
   pinMode(MENU_PIN,INPUT_PULLUP);
   
   FastLED.addLeds<CHIPSET, LED_PIN, COLOR_ORDER>(leds[0], leds.Size());
-  FastLED.setBrightness(25); //64
+  FastLED.setBrightness(48); //64
   FastLED.clear(true);
   delay(100);
   int i = 0;
@@ -111,8 +112,7 @@ void setup()
   if (hasWifi==0){
     scrollText("   NO WIFI!     WELCOME ");
   } else {
-    //scrollText("     WELCOME APAP'S ");
-    scrollText("x");
+    scrollText("     TIME FOR SOME FUN! ");
   }
   dbg("setup done");
   printFreeHeap();
@@ -130,7 +130,7 @@ void blueBtnLongPressed(){
 
 void redBtnLongPressed(){
   if (mode == MODE_SCOREBOARD){
-    if (currentBlueScore>0)
+    if (currentRedScore>0)
       currentRedScore--;
     checkGame();
   }
@@ -201,6 +201,7 @@ void setDefaultMsgList(){
 void doSetMsg(char * msg){
   int idx = (int)msg[0]-(int)'0';
   msgList[idx] = paddedMsg(String(msg+1));
+  waitingForSource = 0;
 }
 
 void clearMsgs(){
@@ -216,12 +217,18 @@ void scrollNextMessage(){
     currentMsgIdx++;
   }
   if (currentMsgIdx == (MAXMSG-1)){
-    dbg("requesting new messages");
-    getNextSource();
+    
+    if (waitingForSource == 0){
+      dbg("requesting new messages");
+      getNextSource();
+    }
+    
   }
-  if (msgList[currentMsgIdx] && msgList[currentMsgIdx].length() > 10){     //9 because of padding
+  if (msgList[currentMsgIdx] && msgList[currentMsgIdx].length() > 11){     //9 because of padding
     dbg("scrolling msg "+String(currentMsgIdx)+" length "+String(msgList[currentMsgIdx].length()));
     scrollText(msgList[currentMsgIdx]);
+  } else {
+    dbg("skipping msg "+String(currentMsgIdx));
   }
   
 }
@@ -246,7 +253,7 @@ void checkGame(){
     currentBlueScore = 0;
     currentRedScore = 0;
   } else if ( currentRedScore >= GAMEMAX_LIST[gameMaxIdx]){
-    scrollText("    Red Player Winws!!    ");
+    scrollText("    Red Player Wins!!    ");
     currentBlueScore = 0;
     currentRedScore = 0;
   }
@@ -256,7 +263,7 @@ void startGame(){
   dbg("Start game");
   ScrollingMsg.SetFont(MatriseFontData);
   String maxStr = String(GAMEMAX_LIST[gameMaxIdx]);
-  showText("GAME TO "+maxStr);
+  showText(" GAME: "+maxStr);
   delay(2000);
   currentBlueScore=0;
   currentRedScore=0;
@@ -375,11 +382,12 @@ void showText(String msg){
 }
 
 void scrollText(String msg){
-  ScrollingMsg.SetFrameRate(3);
+  ScrollingMsg.SetFrameRate(2);   //1 is fastest
   ScrollingMsg.SetFont(MatriseFontData);
   //ScrollingMsg.SetFont(RobotronFontData);
   //ScrollingMsg.SetScrollDirection(SCROLL_UP);
-  ScrollingMsg.SetTextColrOptions(COLR_RGB | COLR_SINGLE, 0xff, 0x00, 0x00);
+  //ScrollingMsg.SetTextColrOptions(COLR_RGB | COLR_SINGLE, 0xff, 0x00, 0x00);
+  ScrollingMsg.SetTextColrOptions(COLR_HSV | COLR_GRAD_AH, 0x00, 0xff, 0xff,0xff,0xff,0xff); //\x00\xff\xff\xff\xff\xff
   FastLED.clear(true);
   int len = msg.length();
   if (mStr)
@@ -446,6 +454,7 @@ void printFreeHeap(){
 
 void getNextSource(){
   dbg("getNextSource");
+  waitingForSource = 1;
   mqttclient.publish("fromticker/getnextsource","getnextsource");
 }
 
